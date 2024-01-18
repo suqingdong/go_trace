@@ -14,14 +14,19 @@ def parse_obo_term(infile):
                     yield term
                 term = {}
                 continue
+
             if line.startswith('id:'):
                 term_id = line.strip().split(':', 1)[1].strip()
-                term[term_id] = []
-            elif line.startswith('is_a:') or line.startswith('relationship: part_of'):
+                term[term_id] = {'parents': []}
+            elif line.startswith('is_a:') or line.startswith('relationship:'):
                 parent_id = re.findall(r'GO:\d+', line)[0]
-                term[term_id].append(parent_id)
+                term[term_id]['parents'].append(parent_id)
             elif line.startswith('is_obsolete:'):
-                term[term_id] = ['is_obsolete']
+                term[term_id]['parents'] = ['is_obsolete']
+            elif line.startswith('name:'):
+                term[term_id]['name'] = line.strip().split(':', 1)[1].strip()
+            elif line.startswith('namespace:'):
+                term[term_id]['namespace'] = line.strip().split(':', 1)[1].strip()
             elif line.startswith('[Typedef]'):
                 yield term
                 break
@@ -37,10 +42,10 @@ def trace_ancestor_paths(term_id, all_terms):
     """
     paths = []
     def recurse(current_term, current_path):
-        if current_term not in all_terms or not all_terms[current_term]:
+        if current_term not in all_terms or not all_terms[current_term]['parents']:
             paths.append(current_path)
             return
-        for parent_id in all_terms[current_term]:
+        for parent_id in all_terms[current_term]['parents']:
             recurse(parent_id, current_path + [parent_id])
 
     recurse(term_id, [term_id])
@@ -58,16 +63,20 @@ def main(go_obo_file, outfile, term):
     out = open(outfile, 'w') if outfile else sys.stdout
 
     all_terms = {}
-    with open('all_terms.jl', 'w') as temp:
+    with open('all_go_terms.xls', 'w') as temp:
+        title = '#GoId Name NameSpace Parents'.split()
+        temp.write('\t'.join(title) + '\n')
         for go_term in parse_obo_term(go_obo_file):
             all_terms.update(go_term)
-            temp.write(json.dumps(go_term, ensure_ascii=False) + '\n')
+            go_id = list(go_term.keys())[0]
+            linelist = [go_id, go_term[go_id]['name'], go_term[go_id]['namespace'], ','.join(go_term[go_id]['parents'])]
+            temp.write('\t'.join(linelist) + '\n')
 
     term_id_list = [term] if term else all_terms
 
     with out:
         for term_id in term_id_list:
-            if all_terms.get(term_id) == ['is_obsolete']:
+            if all_terms.get(term_id) and all_terms[term_id].get('parents') == ['is_obsolete']:
                 linelist = [term_id, 'is_obsolete']
                 out.write('\t'.join(linelist) + '\n')
             else:
